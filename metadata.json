@@ -1,0 +1,7 @@
+{
+  "name": "QLSV2 Learning Studio",
+  "description": "A minimal, user-friendly learning and creation application inspired by Google NotebookLM. Ingest source material and generate podcasts, reports, infographics, and more with an exploratory AI approach.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

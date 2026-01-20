@@ -1,0 +1,10 @@
+# Netlify redirects for SPA and API routing
+
+# API routes - redirect to backend
+/api/* https://your-backend-url.com/:splat 200
+
+# Allow static privacy page to resolve before SPA fallback
+/privacy.html /privacy.html 200
+
+# SPA fallback - serve index.html for all other routes
+/* /index.html 200

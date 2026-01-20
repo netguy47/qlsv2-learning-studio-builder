@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "mcp__filesystem__directory_tree",
+      "Bash(npm install:*)",
+      "Bash(npm run build:*)",
+      "Bash(python test_infographic_fix.py:*)",
+      "Bash(node test_frontend_regex.js:*)",
+      "Bash(curl:*)",
+      "Bash(python test_slides_endpoint.py:*)",
+      "Bash(python:*)",
+      "Bash(pip install:*)",
+      "Bash(findstr:*)",
+      "Bash(test:*)"
+    ]
+  }
+}

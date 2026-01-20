@@ -1,0 +1,68 @@
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+dist-ssr/
+build/
+.next/
+out/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+.env.netlify
+
+# Python backend (deploy separately to Railway)
+server/
+*.py
+*.pyc
+*.pyo
+__pycache__/
+
+# Storage (audio files, images, etc.)
+storage/
+
+# Cache
+.cache/
+.parcel-cache/
+
+# Testing
+coverage/
+.nyc_output/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Misc
+*.pem
+*.tmp
+*.temp
+tmpclaude-*
+
+# PowerPoint files
+*.pptx
+
+# SVG test files
+test_*.svg
+nul
