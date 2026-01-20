@@ -66,11 +66,11 @@ const App: React.FC = () => {
 
   const computeFortifiedBaselineStatus = useCallback((): FortifiedBaselineStatus => {
     // Check environment readiness
-    const requiredEnvVars = ['REACT_APP_API_ENDPOINT'];
+    const requiredEnvVars = ['VITE_API_ENDPOINT'];
     const missingVars = requiredEnvVars.filter(varName => {
-      // Check both process.env and window.location for API endpoint
-      if (varName === 'REACT_APP_API_ENDPOINT') {
-        const hasEnvVar = process.env[varName] !== undefined;
+      // Check both import.meta.env and window.location for API endpoint
+      if (varName === 'VITE_API_ENDPOINT') {
+        const hasEnvVar = import.meta.env[varName] !== undefined;
         const hasDefaultEndpoint = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
         return !hasEnvVar && !hasDefaultEndpoint;
       }
