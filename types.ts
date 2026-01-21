@@ -17,6 +17,131 @@ export enum OutputType {
 export type SelectableOutputType = Exclude<OutputType, OutputType.BASELINE>;
 
 /**
+ * Development Mode Override
+ *
+ * Bypasses entitlement checks in development mode for testing purposes.
+ */
+export const DEV_MODE_OVERRIDE = import.meta.env.DEV;
+
+/**
+ * Canonical Flow State Machines
+ *
+ * Enforces INGEST → REPORT → (OPTIONAL) PODCAST flow
+ */
+
+/**
+ * Ingestion State Machine
+ */
+export enum IngestionState {
+  IDLE = 'IDLE',
+  VALIDATING = 'VALIDATING',
+  INGESTING = 'INGESTING',
+  FAILED = 'FAILED',
+  SUCCESS = 'SUCCESS'
+}
+
+/**
+ * Report State Machine
+ */
+export enum ReportState {
+  IDLE = 'IDLE',
+  GENERATING = 'GENERATING',
+  READY = 'READY',
+  FAILED = 'FAILED'
+}
+
+/**
+ * Podcast State Machine
+ */
+export enum PodcastState {
+  IDLE = 'IDLE',
+  GENERATING = 'GENERATING',
+  READY = 'READY',
+  FAILED = 'FAILED'
+}
+
+/**
+ * Canonical Flow Status
+ *
+ * Tracks the state of the entire canonical flow
+ */
+export interface CanonicalFlowStatus {
+  ingestion: IngestionState;
+  report: ReportState;
+  podcast: PodcastState;
+  contentId?: string;
+}
+
+/**
+ * Flow Guard 1 — Ingest Preconditions
+ *
+ * Input MUST be a valid article URL OR pasted text
+ * Social/video URLs are blocked unless transcript flow is used
+ * Backend ingest MUST return a valid contentId
+ */
+export const NON_TEXT_SOURCES = [
+  "youtube.com",
+  "tiktok.com",
+  "instagram.com",
+  "x.com",
+  "twitter.com"
+];
+
+export function validateIngestInput(url: string): { valid: boolean; reason?: string } {
+  if (NON_TEXT_SOURCES.some(d => url.includes(d))) {
+    return {
+      valid: false,
+      reason: 'This source has no extractable article text. Paste a transcript instead.'
+    };
+  }
+  return { valid: true };
+}
+
+/**
+ * Flow Guard 2 — Preview Gating
+ *
+ * /preview may ONLY be called if:
+ * - ingestState === SUCCESS
+ * - contentId exists
+ */
+export function canCallPreview(flowStatus: CanonicalFlowStatus): boolean {
+  return flowStatus.ingestion === IngestionState.SUCCESS && !!flowStatus.contentId;
+}
+
+/**
+ * Flow Guard 3 — Report is Mandatory
+ *
+ * REPORT generation is required before any downstream artifact
+ * Podcast generation is DISABLED until:
+ * - ingestState === SUCCESS
+ * - reportState === READY
+ */
+export function canGeneratePodcast(flowStatus: CanonicalFlowStatus): boolean {
+  return (
+    flowStatus.ingestion === IngestionState.SUCCESS &&
+    flowStatus.report === ReportState.READY
+  );
+}
+
+/**
+ * Flow Guard 4 — Podcast Entitlements
+ *
+ * Podcast generation requires PRO tier entitlement
+ */
+export function checkPodcastEntitlement(userTier: UserTier): { eligible: boolean; reason?: string } {
+  const hasPro = DEV_MODE_OVERRIDE || USER_TIER_ENTITLEMENTS[userTier]?.includes(Entitlement.GENERATE_PODCAST);
+  
+  if (!hasPro) {
+    return {
+      eligible: false,
+      reason: 'Podcast generation requires PRO tier subscription'
+    };
+  }
+  
+  return { eligible: true };
+}
+
+/**
  * User Tier Enum
  * 
  * Defines the subscription tiers for the application.
@@ -379,6 +504,14 @@ export function checkMonetizationEntitlement(
   type: OutputType,
   userTier: UserTier
 ): MonetizationCheckResult {
+  // Dev mode override: bypass all entitlement checks
+  if (DEV_MODE_OVERRIDE) {
+    return {
+      eligible: true,
+      reason: 'Dev mode override'
+    };
+  }
+
   const capability = OUTPUT_CAPABILITIES.find(c => c.type === type);
   
   if (!capability) {

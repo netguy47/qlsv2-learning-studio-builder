@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { OutputType, GeneratedOutput, InternalBaseline, BaselineStatus, FortifiedBaselineState, FortifiedBaselineStatus, BaselineAction, determineOutputEligibility, OutputEligibility, OutputExecutionState, OutputExecutionStatus, UserTier, checkMonetizationEntitlement, MonetizationCheckResult, NotesOutput, ReportOutput, AudioReportOutput, InfographicOutput, SlideDeckOutput, PodcastOutput, SelectableOutputType } from './types';
+import { OutputType, GeneratedOutput, InternalBaseline, BaselineStatus, FortifiedBaselineState, FortifiedBaselineStatus, BaselineAction, determineOutputEligibility, OutputEligibility, OutputExecutionState, OutputExecutionStatus, UserTier, checkMonetizationEntitlement, MonetizationCheckResult, NotesOutput, ReportOutput, AudioReportOutput, InfographicOutput, SlideDeckOutput, PodcastOutput, SelectableOutputType, IngestionState, ReportState, PodcastState, CanonicalFlowStatus, validateIngestInput, canCallPreview, canGeneratePodcast, checkPodcastEntitlement } from './types';
+import { ENV } from './src/env';
 import IngestionPanel from './components/IngestionPanel';
 import OutputSelector from './components/OutputSelector';
 import OutputViewer from './components/OutputViewer';
@@ -10,10 +11,16 @@ import EnhancedInfographicPanel from './components/panels/InfographicPanel';
 import EnhancedSlideDeckPanel from './components/panels/SlideDeckPanel';
 import { OUTPUT_METADATA } from './constants';
 import { generateLongForm, countWords } from './longform';
-import { API_ENDPOINTS, TIMEOUTS } from './config';
+import { API_ENDPOINTS, TIMEOUTS, API_BASE_URL } from './config';
 import { BookOpenIcon, SparklesIcon, ArchiveBoxIcon, ArrowLeftIcon, ExclamationTriangleIcon, CheckCircleIcon, XCircleIcon, ClockIcon } from '@heroicons/react/24/outline';
 
 const App: React.FC = () => {
+  const [canonicalFlow, setCanonicalFlow] = useState<CanonicalFlowStatus>({
+    ingestion: IngestionState.IDLE,
+    report: ReportState.IDLE,
+    podcast: PodcastState.IDLE
+  });
+
   const [baseline, setBaseline] = useState<InternalBaseline | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -65,18 +72,18 @@ const App: React.FC = () => {
   };
 
   const computeFortifiedBaselineStatus = useCallback((): FortifiedBaselineStatus => {
-    // Check environment readiness
-    const requiredEnvVars = ['VITE_API_ENDPOINT'];
-    const missingVars = requiredEnvVars.filter(varName => {
-      // Check both import.meta.env and window.location for API endpoint
-      if (varName === 'VITE_API_ENDPOINT') {
-        const hasEnvVar = import.meta.env[varName] !== undefined;
-        const hasDefaultEndpoint = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-        return !hasEnvVar && !hasDefaultEndpoint;
-      }
-      return false;
-    });
-    const environmentReady = missingVars.length === 0;
+    // Check environment readiness using ENV contract
+    let environmentReady = true;
+    let envError: string | null = null;
+    let missingVars: string[] = [];
+
+    try {
+      ENV.VITE_API_ENDPOINT;
+    } catch (e) {
+      environmentReady = false;
+      envError = (e as Error).message;
+      missingVars = ['VITE_API_ENDPOINT'];
+    }
 
     // Check baseline presence
     const hasBaseline = baseline !== null;
@@ -102,7 +109,7 @@ const App: React.FC = () => {
     // BLOCKED state: Requires external change (env update, redeploy, or user action)
     if (!environmentReady) {
       state = FortifiedBaselineState.BLOCKED;
-      message = `Missing required environment variables: ${missingVars.join(', ')}`;
+      message = envError || 'Missing required environment variables';
       action = BaselineAction.CONFIGURE_ENVIRONMENT;
       actionGuidance = 'Configure environment variables in .env file and restart the application';
       // Track blocked reason to enforce external change requirement
@@ -260,14 +267,17 @@ const App: React.FC = () => {
       addDiagnostic('prompt normalization', 'Empty submission. Nothing to ingest.', 'error');
       return;
     }
-    
+
     // Check if system is BLOCKED before allowing any ingestion
     if (fortifiedStatus && fortifiedStatus.state === FortifiedBaselineState.BLOCKED) {
       addDiagnostic('baseline status', `Cannot ingest: system is BLOCKED. ${fortifiedStatus.actionGuidance}`, 'error');
       alert(`System is blocked. ${fortifiedStatus.actionGuidance}`);
       return;
     }
-    
+
+    // Update canonical flow to VALIDATING
+    setCanonicalFlow(prev => ({ ...prev, ingestion: IngestionState.VALIDATING }));
+
     addDiagnostic(
       'prompt normalization',
       `Normalized input length ${normalized.length}. Classified as ${type}.`,
@@ -282,7 +292,7 @@ const App: React.FC = () => {
         // Manual entry: Normalize into Evidence Vault schema
         addDiagnostic('tool / retrieval invocation', 'Submitting manual entry with purpose.', 'info');
         const sourceType = 'Manual Entry';
-        const response = await fetch('http://localhost:5000/ingest', {
+        const response = await fetch(API_ENDPOINTS.INGEST, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
@@ -293,12 +303,9 @@ const App: React.FC = () => {
         });
         const data = await response.json();
         if (data.error) throw new Error(data.error);
-        if (data.status === BaselineStatus.ERROR || data.status === BaselineStatus.INSUFFICIENT_CONTENT) {
-          const message = data.error_message || 'Manual entry insufficient. Provide more content.';
-          addDiagnostic('response handling', message, 'warning');
-          alert(message);
-          setBaseline(null);
-          return;
+        if (data.status !== BaselineStatus.OK) {
+          setCanonicalFlow(prev => ({ ...prev, ingestion: IngestionState.FAILED }));
+          return; // no preview, no fetch, no side effects
         }
         addDiagnostic('response handling', 'Manual entry baseline response received.', 'info');
         setBaseline({
@@ -311,10 +318,31 @@ const App: React.FC = () => {
           status: data.status,
           errorMessage: data.error_message
         });
+        // Update canonical flow to SUCCESS with contentId
+        setCanonicalFlow(prev => ({ 
+          ...prev, 
+          ingestion: IngestionState.SUCCESS,
+          contentId: data.content_id || `manual-${Date.now()}`
+        }));
       } else if (type === 'url') {
+        // Flow Guard 1 — Ingest Preconditions
+        const validation = validateIngestInput(content);
+        if (!validation.valid) {
+          addDiagnostic('source validation', 'Non-text source detected. Rejection required.', 'error');
+          alert(validation.reason);
+          setIsProcessing(false);
+          return;
+        }
         // For URLs, fetch preview first
+        // Flow Guard 2 — Preview Gating
+        if (!canCallPreview(canonicalFlow)) {
+          addDiagnostic('flow guard', 'Preview gating: Ingestion must be SUCCESS before preview', 'error');
+          alert('Cannot preview: Ingestion must complete successfully first');
+          setIsProcessing(false);
+          return;
+        }
         addDiagnostic('tool / retrieval invocation', 'Requesting URL preview.', 'info');
-        const response = await fetch('http://localhost:5000/preview', {
+        const response = await fetch(API_ENDPOINTS.PREVIEW, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: content })
@@ -332,20 +360,15 @@ const App: React.FC = () => {
         // For YouTube, immediately ingest
         const sourceType = 'YouTube';
         addDiagnostic('tool / retrieval invocation', 'Submitting YouTube ingestion.', 'info');
-        const response = await fetch('http://localhost:5000/ingest', {
+        const response = await fetch(API_ENDPOINTS.INGEST, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ source_type: sourceType, input_value: content })
         });
         const data = await response.json();
         if (data.error) throw new Error(data.error);
-        if (data.status === BaselineStatus.ERROR || data.status === BaselineStatus.INSUFFICIENT_CONTENT) {
-          const message = data.error_message
-            || 'YouTube transcript unavailable. Paste a transcript manually to continue.';
-          addDiagnostic('response handling', message, 'warning');
-          alert(message);
-          setBaseline(null);
-          return;
+        if (data.status !== BaselineStatus.OK) {
+          return; // no preview, no fetch, no side effects
         }
         addDiagnostic('response handling', 'Baseline response received.', 'info');
         setBaseline({
@@ -358,17 +381,27 @@ const App: React.FC = () => {
           status: data.status,
           errorMessage: data.error_message
         });
+        // Update canonical flow to SUCCESS with contentId
+        setCanonicalFlow(prev => ({ 
+          ...prev, 
+          ingestion: IngestionState.SUCCESS,
+          contentId: data.content_id || `youtube-${Date.now()}`
+        }));
       } else {
         // For pasted text, immediately ingest
         const sourceType = 'Paste';
         addDiagnostic('tool / retrieval invocation', 'Submitting text ingestion.', 'info');
-        const response = await fetch('http://localhost:5000/ingest', {
+        const response = await fetch(API_ENDPOINTS.INGEST, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ source_type: sourceType, input_value: content })
         });
         const data = await response.json();
         if (data.error) throw new Error(data.error);
+        if (data.status !== BaselineStatus.OK) {
+          setCanonicalFlow(prev => ({ ...prev, ingestion: IngestionState.FAILED }));
+          return; // no preview, no fetch, no side effects
+        }
         addDiagnostic('response handling', 'Baseline response received.', 'info');
         setBaseline({
           content: data.content,
@@ -380,6 +413,12 @@ const App: React.FC = () => {
           status: data.status,
           errorMessage: data.error_message
         });
+        // Update canonical flow to SUCCESS with contentId
+        setCanonicalFlow(prev => ({ 
+          ...prev, 
+          ingestion: IngestionState.SUCCESS,
+          contentId: data.content_id || `text-${Date.now()}`
+        }));
       }
     } catch (error) {
       addDiagnostic('response handling', `Ingestion failed: ${getErrorMessage(error)}`, 'error');
@@ -411,13 +450,17 @@ const App: React.FC = () => {
     setIsProcessing(true);
     try {
       addDiagnostic('tool / retrieval invocation', 'Submitting URL ingestion.', 'info');
-      const response = await fetch('http://localhost:5000/ingest', {
+      const response = await fetch(API_ENDPOINTS.INGEST, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ source_type: 'URL', input_value: preview.url })  
       });
       const data = await response.json();
       if (data.error) throw new Error(data.error);
+      if (data.status !== BaselineStatus.OK) {
+        setCanonicalFlow(prev => ({ ...prev, ingestion: IngestionState.FAILED }));
+        return; // no preview, no fetch, no side effects
+      }
       addDiagnostic('response handling', 'Baseline response received.', 'info');
 
       if (forceOkStatus) {
@@ -433,10 +476,17 @@ const App: React.FC = () => {
         status: forceOkStatus ? BaselineStatus.OK : data.status,
         errorMessage: forceOkStatus ? undefined : data.error_message
       });
+      // Update canonical flow to SUCCESS with contentId
+      setCanonicalFlow(prev => ({ 
+        ...prev, 
+        ingestion: IngestionState.SUCCESS,
+        contentId: data.content_id || `url-${Date.now()}`
+      }));
       setPreview(null);
     } catch (error) {
       addDiagnostic('response handling', `Baseline creation failed: ${getErrorMessage(error)}`, 'error');
       console.error("Baseline creation failed:", error);
+      setCanonicalFlow(prev => ({ ...prev, ingestion: IngestionState.FAILED }));
       alert("Failed to create baseline. Please try again.");
     } finally {
       setIsProcessing(false);
@@ -633,7 +683,7 @@ const App: React.FC = () => {
       addDiagnostic('audio report generation', 'Generating audio narration using TTS provider', 'info');
       
       // Use the backend TTS endpoint
-      const ttsResponse = await fetch('http://localhost:5000/tts', {
+      const ttsResponse = await fetch(API_ENDPOINTS.TTS, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -800,7 +850,7 @@ const App: React.FC = () => {
       addDiagnostic('infographic generation', 'Generating infographic image using image provider', 'info');
       
       // Use the backend image generation endpoint
-      const imageResponse = await fetch('http://localhost:5000/generate-image', {
+      const imageResponse = await fetch(`${API_BASE_URL}/generate-image`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1040,6 +1090,9 @@ const App: React.FC = () => {
       )
     );
 
+    // Update canonical flow to GENERATING
+    setCanonicalFlow(prev => ({ ...prev, podcast: PodcastState.GENERATING }));
+
     addDiagnostic('podcast generation', 'Starting PODCAST generation', 'info');
 
     try {
@@ -1089,7 +1142,7 @@ const App: React.FC = () => {
       addDiagnostic('podcast generation', 'Generating podcast audio using TTS provider', 'info');
       
       // Use the backend TTS endpoint
-      const ttsResponse = await fetch('http://localhost:5000/tts', {
+      const ttsResponse = await fetch(API_ENDPOINTS.TTS, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1155,6 +1208,9 @@ const App: React.FC = () => {
       addDiagnostic('podcast generation', 'PODCAST generation completed successfully', 'info');
       console.log('🎙️ Podcast Output Generated:', JSON.stringify(podcastResult, null, 2));
 
+      // Update canonical flow to READY
+      setCanonicalFlow(prev => ({ ...prev, podcast: PodcastState.READY }));
+
     } catch (error) {
       const errorMessage = getErrorMessage(error);
       addDiagnostic('podcast generation', `PODCAST generation failed: ${errorMessage}`, 'error');
@@ -1167,6 +1223,9 @@ const App: React.FC = () => {
             : status
         )
       );
+
+      // Update canonical flow to FAILED
+      setCanonicalFlow(prev => ({ ...prev, podcast: PodcastState.FAILED }));
 
       console.error('PODCAST generation failed:', error);
       alert(`PODCAST generation failed: ${errorMessage}`);
@@ -1189,6 +1248,9 @@ const App: React.FC = () => {
           : status
       )
     );
+
+    // Update canonical flow to GENERATING
+    setCanonicalFlow(prev => ({ ...prev, report: ReportState.GENERATING }));
 
     addDiagnostic('report generation', 'Starting REPORT generation', 'info');
 
@@ -1284,6 +1346,9 @@ const App: React.FC = () => {
       addDiagnostic('report generation', 'REPORT generation completed successfully', 'info');
       console.log('📄 Report Output Generated:', JSON.stringify(reportResult, null, 2));
 
+      // Update canonical flow to READY
+      setCanonicalFlow(prev => ({ ...prev, report: ReportState.READY }));
+
     } catch (error) {
       const errorMessage = getErrorMessage(error);
       addDiagnostic('report generation', `REPORT generation failed: ${errorMessage}`, 'error');
@@ -1297,6 +1362,9 @@ const App: React.FC = () => {
         )
       );
 
+      // Update canonical flow to FAILED
+      setCanonicalFlow(prev => ({ ...prev, report: ReportState.FAILED }));
+
       console.error('REPORT generation failed:', error);
       alert(`REPORT generation failed: ${errorMessage}`);
     }
@@ -1304,6 +1372,24 @@ const App: React.FC = () => {
 
   const handleSelectOutput = async (type: SelectableOutputType) => {
     addDiagnostic('submit event', `Output generation requested for ${OUTPUT_METADATA[type].label}.`, 'info');
+    
+    // Flow Guard 3 — Report is Mandatory
+    // Podcast generation is DISABLED until ingestState === SUCCESS and reportState === READY
+    if (type === OutputType.PODCAST) {
+      if (!canGeneratePodcast(canonicalFlow)) {
+        addDiagnostic('flow guard', 'Podcast generation disabled: Report must be READY first', 'error');
+        alert('Cannot generate podcast: Report must be generated first');
+        return;
+      }
+      
+      // Flow Guard 4 — Podcast Entitlements
+      const podcastEntitlement = checkPodcastEntitlement(userTier);
+      if (!podcastEntitlement.eligible) {
+        addDiagnostic('entitlement check', podcastEntitlement.reason || 'Entitlement check failed', 'error');
+        alert(podcastEntitlement.reason);
+        return;
+      }
+    }
     
     // Check eligibility before allowing execution
     const eligibility = outputEligibility.find(e => e.type === type);
@@ -1447,7 +1533,7 @@ const App: React.FC = () => {
     
     if (sourceContent.length < 50) {
       try {
-        const hydrateResponse = await fetch('http://localhost:5000/hydrate', {
+        const hydrateResponse = await fetch(`${API_BASE_URL}/hydrate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: sourceContent, content_type: 'general' })
@@ -1496,7 +1582,7 @@ const App: React.FC = () => {
       if (isShortForHydration && (type === OutputType.PODCAST || type === OutputType.SLIDEDECK || type === OutputType.REPORT)) {
         try {
           const contentType = type === OutputType.PODCAST ? 'podcast' : (type === OutputType.SLIDEDECK ? 'slides' : 'general');
-          const hydrateResponse = await fetch('http://localhost:5000/hydrate', {
+          const hydrateResponse = await fetch(`${API_BASE_URL}/hydrate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
@@ -1528,7 +1614,7 @@ const App: React.FC = () => {
       
       const requestTts = async (ttsText: string, prefix: string) => {
         addDiagnostic('tool / retrieval invocation', 'Requesting TTS narration.', 'info');
-        const response = await fetch('http://localhost:5000/tts', {
+        const response = await fetch(API_ENDPOINTS.TTS, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text: ttsText, prefix })
@@ -1536,7 +1622,7 @@ const App: React.FC = () => {
         const data = await response.json();
         if (data.error) throw new Error(data.error);
         addDiagnostic('response handling', 'TTS narration ready.', 'info');
-        return `http://localhost:5000/audio/${data.audio_filename}`;
+        return `${API_BASE_URL}/audio/${data.audio_filename}`;
       };
 
       if (type === OutputType.REPORT) {

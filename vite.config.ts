@@ -15,6 +15,54 @@ export default defineConfig(({ mode }) => {
             ws: true,
             timeout: 60000,
             proxyTimeout: 60000
+          },
+          '/preview': {
+            target: 'http://localhost:5000',
+            changeOrigin: true,
+            timeout: 60000,
+            proxyTimeout: 60000
+          },
+          '/ingest': {
+            target: 'http://localhost:5000',
+            changeOrigin: true,
+            timeout: 60000,
+            proxyTimeout: 60000
+          },
+          '/tts': {
+            target: 'http://localhost:5000',
+            changeOrigin: true,
+            timeout: 60000,
+            proxyTimeout: 60000
+          },
+          '/hydrate': {
+            target: 'http://localhost:5000',
+            changeOrigin: true,
+            timeout: 60000,
+            proxyTimeout: 60000
+          },
+          '/generate-image': {
+            target: 'http://localhost:5000',
+            changeOrigin: true,
+            timeout: 60000,
+            proxyTimeout: 60000
+          },
+          '/audio': {
+            target: 'http://localhost:5000',
+            changeOrigin: true,
+            timeout: 60000,
+            proxyTimeout: 60000
+          },
+          '/slides': {
+            target: 'http://localhost:5000',
+            changeOrigin: true,
+            timeout: 90000,
+            proxyTimeout: 90000
+          },
+          '/infographic': {
+            target: 'http://localhost:5000',
+            changeOrigin: true,
+            timeout: 30000,
+            proxyTimeout: 30000
           }
         }
       },
