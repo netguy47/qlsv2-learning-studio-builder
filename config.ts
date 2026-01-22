@@ -3,13 +3,9 @@
  */
 
 export const getApiBaseUrl = (): string => {
-  // Production: use relative URLs (same origin)
-  if (import.meta.env.PROD) {
-    return '';
-  }
-
-  // Development: use environment variable or default to Flask standard port
-  return import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+  // Always use relative URLs - Vite proxy handles development routing
+  // In production, this points to the same origin (Capacitor bundled assets)
+  return import.meta.env.VITE_API_BASE_URL || '';
 };
 
 export const API_BASE_URL = getApiBaseUrl();

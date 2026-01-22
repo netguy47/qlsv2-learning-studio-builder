@@ -25,12 +25,15 @@ out/
 .env.*.local
 .env.netlify
 
-# Python backend (deploy separately to Railway)
-server/
-*.py
+# Python cache and compiled files
 *.pyc
 *.pyo
 __pycache__/
+
+# Python backend - track source files but ignore some
+# (Note: *.py files ARE tracked for version control)
+# server/ folder is excluded as it's an old Express proxy
+server/
 
 # Storage (audio files, images, etc.)
 storage/
@@ -66,3 +69,6 @@ tmpclaude-*
 # SVG test files
 test_*.svg
 nul
+
+.vercel
+.env*.local

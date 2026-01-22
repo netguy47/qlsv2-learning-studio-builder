@@ -1,0 +1,20 @@
+# Optional scraping dependencies for enhanced article extraction
+# Install with: pip install -r requirements-scraping.txt
+
+# Trafilatura - Best-in-class article extraction
+# GitHub: https://github.com/adbar/trafilatura
+trafilatura>=1.11.0
+
+# Playwright - Browser automation for protected sites
+# GitHub: https://github.com/microsoft/playwright-python
+# After installing, run: playwright install chromium
+playwright>=1.40.0
+
+# Alternative: Newspaper3k (another popular option)
+# Uncomment if you prefer this over Trafilatura
+# newspaper3k>=0.2.8
+
+# Alternative: Selenium (if you prefer it over Playwright)
+# Uncomment if needed
+# selenium>=4.15.0
+# webdriver-manager>=4.0.1

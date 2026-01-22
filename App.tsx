@@ -282,7 +282,7 @@ const App: React.FC = () => {
         // Manual entry: Normalize into Evidence Vault schema
         addDiagnostic('tool / retrieval invocation', 'Submitting manual entry with purpose.', 'info');
         const sourceType = 'Manual Entry';
-        const response = await fetch('http://localhost:5000/ingest', {
+        const response = await fetch('/ingest', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
@@ -314,7 +314,7 @@ const App: React.FC = () => {
       } else if (type === 'url') {
         // For URLs, fetch preview first
         addDiagnostic('tool / retrieval invocation', 'Requesting URL preview.', 'info');
-        const response = await fetch('http://localhost:5000/preview', {
+        const response = await fetch('/preview', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: content })
@@ -332,7 +332,7 @@ const App: React.FC = () => {
         // For YouTube, immediately ingest
         const sourceType = 'YouTube';
         addDiagnostic('tool / retrieval invocation', 'Submitting YouTube ingestion.', 'info');
-        const response = await fetch('http://localhost:5000/ingest', {
+        const response = await fetch('/ingest', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ source_type: sourceType, input_value: content })
@@ -362,7 +362,7 @@ const App: React.FC = () => {
         // For pasted text, immediately ingest
         const sourceType = 'Paste';
         addDiagnostic('tool / retrieval invocation', 'Submitting text ingestion.', 'info');
-        const response = await fetch('http://localhost:5000/ingest', {
+        const response = await fetch('/ingest', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ source_type: sourceType, input_value: content })
@@ -411,7 +411,7 @@ const App: React.FC = () => {
     setIsProcessing(true);
     try {
       addDiagnostic('tool / retrieval invocation', 'Submitting URL ingestion.', 'info');
-      const response = await fetch('http://localhost:5000/ingest', {
+      const response = await fetch('/ingest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ source_type: 'URL', input_value: preview.url })  
@@ -633,7 +633,7 @@ const App: React.FC = () => {
       addDiagnostic('audio report generation', 'Generating audio narration using TTS provider', 'info');
       
       // Use the backend TTS endpoint
-      const ttsResponse = await fetch('http://localhost:5000/tts', {
+      const ttsResponse = await fetch('/tts', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -800,7 +800,7 @@ const App: React.FC = () => {
       addDiagnostic('infographic generation', 'Generating infographic image using image provider', 'info');
       
       // Use the backend image generation endpoint
-      const imageResponse = await fetch('http://localhost:5000/generate-image', {
+      const imageResponse = await fetch('/generate-image', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1089,7 +1089,7 @@ const App: React.FC = () => {
       addDiagnostic('podcast generation', 'Generating podcast audio using TTS provider', 'info');
       
       // Use the backend TTS endpoint
-      const ttsResponse = await fetch('http://localhost:5000/tts', {
+      const ttsResponse = await fetch('/tts', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1447,7 +1447,7 @@ const App: React.FC = () => {
     
     if (sourceContent.length < 50) {
       try {
-        const hydrateResponse = await fetch('http://localhost:5000/hydrate', {
+        const hydrateResponse = await fetch('/hydrate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: sourceContent, content_type: 'general' })
@@ -1496,7 +1496,7 @@ const App: React.FC = () => {
       if (isShortForHydration && (type === OutputType.PODCAST || type === OutputType.SLIDEDECK || type === OutputType.REPORT)) {
         try {
           const contentType = type === OutputType.PODCAST ? 'podcast' : (type === OutputType.SLIDEDECK ? 'slides' : 'general');
-          const hydrateResponse = await fetch('http://localhost:5000/hydrate', {
+          const hydrateResponse = await fetch('/hydrate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
@@ -1528,7 +1528,7 @@ const App: React.FC = () => {
       
       const requestTts = async (ttsText: string, prefix: string) => {
         addDiagnostic('tool / retrieval invocation', 'Requesting TTS narration.', 'info');
-        const response = await fetch('http://localhost:5000/tts', {
+        const response = await fetch('/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text: ttsText, prefix })
@@ -1536,7 +1536,7 @@ const App: React.FC = () => {
         const data = await response.json();
         if (data.error) throw new Error(data.error);
         addDiagnostic('response handling', 'TTS narration ready.', 'info');
-        return `http://localhost:5000/audio/${data.audio_filename}`;
+        return `/audio/${data.audio_filename}`;
       };
 
       if (type === OutputType.REPORT) {
